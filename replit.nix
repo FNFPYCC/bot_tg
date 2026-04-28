@@ -1,8 +1,8 @@
 { pkgs }: {
     deps = [
         pkgs.ffmpeg
-        pkgs.python311
-        pkgs.python311Packages.pip
-        pkgs.python311Packages.virtualenv
+        pkgs.python39      # Меняем python311 на python39 (рабочая версия)
+        pkgs.python39Packages.pip
+        pkgs.python39Packages.virtualenv
     ];
 }

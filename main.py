@@ -1,21 +1,23 @@
 import telebot
 import yt_dlp
 import os
-from keep_alive import keep_alive
+import re
+from flask import Flask
+from threading import Thread
 
-# Токен берем из секретов Replit (Environment Variables)
+# Токен бота (обязательно добавь в Secrets Replit: BOT_TOKEN)
 TOKEN = os.environ.get('BOT_TOKEN')
 if not TOKEN:
-    print("❌ Ошибка: BOT_TOKEN не найден в секретах Replit!")
+    print("❌ Ошибка: добавь BOT_TOKEN в Secrets Replit!")
     exit(1)
 
 bot = telebot.TeleBot(TOKEN)
 
 # Папка для временных файлов
-TEMP_FOLDER = "temp_downloads"
+TEMP_FOLDER = "temp"
 
 def download_mp3(url, chat_id):
-    """Скачивает аудио из YouTube и возвращает путь к файлу и название"""
+    """Скачивает аудио из YouTube и возвращает путь к файлу"""
     os.makedirs(f"{TEMP_FOLDER}/{chat_id}", exist_ok=True)
     
     ydl_opts = {
@@ -26,10 +28,8 @@ def download_mp3(url, chat_id):
             'preferredquality': '192',
         }],
         'outtmpl': f'{TEMP_FOLDER}/{chat_id}/%(title)s.%(ext)s',
-        'quiet': False,  # Ставим False, чтобы видеть ошибки в логах Replit
+        'quiet': True,
         'noplaylist': True,
-        'cookiefile': 'cookies.txt',  # Путь к файлу куков (если есть)
-        'remotecomponents': 'ejs:npm',  # Решает проблему с JavaScript
     }
     
     try:
@@ -37,76 +37,68 @@ def download_mp3(url, chat_id):
             info = ydl.extract_info(url, download=True)
             title = info.get('title', 'audio')
             
-            # Ищем скачанный MP3 файл
-            for file in os.listdir(f'{TEMP_FOLDER}/{chat_id}'):
-                if file.endswith('.mp3'):
-                    return os.path.join(f'{TEMP_FOLDER}/{chat_id}', file), title
+            for f in os.listdir(f'{TEMP_FOLDER}/{chat_id}'):
+                if f.endswith('.mp3'):
+                    return os.path.join(f'{TEMP_FOLDER}/{chat_id}', f), title
         
         return None, None
     except Exception as e:
-        print(f"Ошибка скачивания: {e}")
+        print(f"Ошибка: {e}")
         return None, None
 
 @bot.message_handler(commands=['start'])
 def start(message):
     bot.reply_to(message, 
-        "🎵 Привет! Я скачиваю аудио из YouTube.\n\n"
+        "🎵 Привет! Я бот для скачивания аудио из YouTube.\n\n"
         "📌 Просто отправь мне ссылку на видео\n"
-        "🔄 Бот работает 24/7\n\n"
-        "Пример ссылки:\n"
-        "https://youtube.com/watch?v=dQw4w9WgXcQ"
+        "🎶 Я пришлю тебе MP3 файл!"
     )
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     url = message.text.strip()
     
-    # Проверка на ссылку YouTube
+    # Проверяем, что это ссылка YouTube
     if 'youtube.com' in url or 'youtu.be' in url:
-        bot.reply_to(message, "🎵 Скачиваю и конвертирую... Подожди немного (до 1 минуты)")
+        bot.reply_to(message, "🎵 Скачиваю и конвертирую... Подожди немного")
         
         file_path, title = download_mp3(url, message.chat.id)
         
-        if file_path and os.path.exists(file_path):
+        if file_path:
+            with open(file_path, 'rb') as audio:
+                bot.send_audio(message.chat.id, audio, title=title)
+            
+            # Удаляем временный файл
+            os.remove(file_path)
             try:
-                # Отправляем аудио
-                with open(file_path, 'rb') as audio:
-                    bot.send_audio(
-                        message.chat.id, 
-                        audio, 
-                        title=title,
-                        caption="✅ Готово!"
-                    )
+                os.rmdir(f"{TEMP_FOLDER}/{message.chat.id}")
+            except:
+                pass
                 
-                # Удаляем временные файлы
-                os.remove(file_path)
-                
-                # Удаляем папку, если она пуста
-                try:
-                    os.rmdir(f"{TEMP_FOLDER}/{message.chat.id}")
-                except:
-                    pass
-                    
-                bot.send_message(message.chat.id, "✅ Аудио успешно загружено!")
-                
-            except Exception as e:
-                bot.reply_to(message, f"❌ Ошибка при отправке: {str(e)[:100]}")
+            bot.send_message(message.chat.id, "✅ Готово!")
         else:
-            bot.reply_to(message, 
-                "❌ Не удалось скачать аудио.\n\n"
-                "Возможные причины:\n"
-                "1. YouTube блокирует этот запрос (нужны свежие cookies)\n"
-                "2. Ссылка недействительна\n"
-                "3. Видео недоступно в вашем регионе"
-            )
+            bot.reply_to(message, "❌ Ошибка при скачивании. Проверь ссылку.")
     else:
-        bot.reply_to(message, 
-            "❌ Отправь ссылку на YouTube видео\n\n"
-            "Пример: https://youtube.com/watch?v=dQw4w9WgXcQ"
-        )
+        bot.reply_to(message, "❌ Отправь ссылку на YouTube видео")
 
-# Запуск Flask-сервера для поддержания работы 24/7
+# Flask-сервер для поддержания работы 24/7
+app = Flask('')
+
+@app.route('/')
+def home():
+    return "🤖 Бот работает 24/7!"
+
+def run():
+    app.run(host='0.0.0.0', port=8080)
+
+def keep_alive():
+    t = Thread(target=run)
+    t.daemon = True
+    t.start()
+    print("✅ Flask-сервер запущен на порту 8080")
+
+# Запускаем сервер для UptimeRobot
 keep_alive()
 
-print("🚀 Бот запущен и работает 24/7!")
+print("🚀 Бот запущен!")
 bot.infinity_polling()
