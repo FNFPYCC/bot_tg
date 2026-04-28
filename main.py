@@ -30,6 +30,7 @@ def download_mp3(url, chat_id):
         'outtmpl': f'{TEMP_FOLDER}/{chat_id}/%(title)s.%(ext)s',
         'quiet': True,
         'noplaylist': True,
+        'remotecomponents': 'ejs:npm',  # Добавляем поддержку JavaScript
     }
     
     try:
